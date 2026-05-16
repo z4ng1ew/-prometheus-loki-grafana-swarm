@@ -1,0 +1,31 @@
+global:
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_from: 'paturlembo@gmail.com'
+  smtp_auth_username: 'paturlembo@gmail.com'
+  smtp_auth_password: 'ytmiqztqhocvdrmp'
+  smtp_require_tls: true
+
+route:
+  group_by: ['alertname']
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 5m
+  receiver: 'multichannel'
+
+receivers:
+  - name: 'multichannel'
+    email_configs:
+      - to: 'z4ng1ew@gmail.com'
+        send_resolved: true
+        headers:
+          Subject: '[DO9 Alert] {{ .GroupLabels.alertname }} ({{ .Status }})'
+    webhook_configs:
+      - url: 'http://192.168.56.1:8080/'
+        send_resolved: true
+
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname']

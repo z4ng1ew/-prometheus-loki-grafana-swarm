@@ -1,0 +1,151 @@
+version: '3.8'
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    ports:
+      - "9090:9090"
+    configs:
+      - source: prom_c7
+        target: /etc/prometheus/prometheus.yml
+      - source: prom_rules_c1
+        target: /etc/prometheus/alert_rules.yml
+    volumes:
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - monitoring-net
+      - app_app-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.24.0
+    networks:
+      - monitoring-net
+      - app_app-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    ports:
+      - "9093:9093"
+    configs:
+      - source: alertmanager_c1
+        target: /etc/alertmanager/alertmanager.yml
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    volumes:
+      - alertmanager_data:/alertmanager
+    networks:
+      - monitoring-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+
+  loki:
+    image: grafana/loki:2.8.0
+    ports:
+      - "3100:3100"
+    configs:
+      - source: loki_c5
+        target: /etc/loki/local-config.yaml
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki_data:/loki
+    networks:
+      - monitoring-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+
+  promtail:
+    image: grafana/promtail:2.8.0
+    configs:
+      - source: promtail_c4
+        target: /etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/log:/var/log:ro
+    networks:
+      - monitoring-net
+    deploy:
+      mode: global
+
+  grafana:
+    image: grafana/grafana:10.1.5
+    ports:
+      - "3000:3000"
+    configs:
+      - source: grafana_c4
+        target: /etc/grafana/provisioning/datasources/datasources.yml
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    networks:
+      - monitoring-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+
+  node-exporter:
+    image: prom/node-exporter:v1.6.1
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - monitoring-net
+    deploy:
+      mode: global
+
+configs:
+  prom_c7:
+    file: ./prometheus/prometheus.yml
+  prom_rules_c1:
+    file: ./prometheus/alert_rules.yml
+  loki_c5:
+    file: ./loki/loki-config.yml
+  promtail_c4:
+    file: ./promtail/promtail-config.yml
+  grafana_c4:
+    file: ./grafana/provisioning/datasources/datasources.yml
+  alertmanager_c1:
+    file: ./alertmanager/alertmanager.yml
+
+networks:
+  monitoring-net:
+    driver: overlay
+    attachable: true
+  app_app-net:
+    external: true
+
+volumes:
+  prometheus_data:
+  loki_data:
+  grafana_data:
+  alertmanager_data:

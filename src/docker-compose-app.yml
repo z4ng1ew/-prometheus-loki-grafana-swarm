@@ -1,0 +1,216 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: do-h-09-postgres:v1
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    networks:
+      - app-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+
+  session-service:
+    image: do-h-09-session-service:v1
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: users_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    entrypoint: ["sh", "-c", "/wait-for-it.sh postgres:5432 -- java -jar app.jar"]
+    networks:
+      - app-net
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 5
+
+  payment-service:
+    image: do-h-09-payment-service:v1
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: payments_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    entrypoint: ["sh", "-c", "/wait-for-it.sh postgres:5432 -- java -jar app.jar"]
+    networks:
+      - app-net
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 5
+
+  loyalty-service:
+    image: do-h-09-loyalty-service:v1
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: balances_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    entrypoint: ["sh", "-c", "/wait-for-it.sh postgres:5432 -- java -jar app.jar"]
+    networks:
+      - app-net
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 5
+
+  booking-service:
+    image: do-h-09-booking-service:v1
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: reservations_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      HOTEL_SERVICE_HOST: hotel-service
+      HOTEL_SERVICE_PORT: 8082
+      PAYMENT_SERVICE_HOST: payment-service
+      PAYMENT_SERVICE_PORT: 8084
+      LOYALTY_SERVICE_HOST: loyalty-service
+      LOYALTY_SERVICE_PORT: 8085
+      RABBIT_MQ_HOST: rabbitmq
+      RABBIT_MQ_PORT: 5672
+      RABBIT_MQ_USER: guest
+      RABBIT_MQ_PASSWORD: guest
+      RABBIT_MQ_QUEUE_NAME: report_queue
+      RABBIT_MQ_EXCHANGE: report_exchange
+    entrypoint: ["sh", "-c", "/wait-for-it.sh postgres:5432 -- /wait-for-it.sh rabbitmq:5672 -- java -jar app.jar"]
+    networks:
+      - app-net
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 5
+
+  report-service:
+    image: do-h-09-report-service:v1
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: statistics_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      RABBIT_MQ_HOST: rabbitmq
+      RABBIT_MQ_PORT: 5672
+      RABBIT_MQ_USER: guest
+      RABBIT_MQ_PASSWORD: guest
+      RABBIT_MQ_QUEUE_NAME: report_queue
+      RABBIT_MQ_EXCHANGE: report_exchange
+    entrypoint: ["sh", "-c", "/wait-for-it.sh postgres:5432 -- /wait-for-it.sh rabbitmq:5672 -- java -jar app.jar"]
+    networks:
+      - app-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 5
+
+  gateway-service:
+    image: do-h-09-gateway-service:v1
+    environment:
+      SESSION_SERVICE_HOST: session-service
+      SESSION_SERVICE_PORT: 8081
+      HOTEL_SERVICE_HOST: hotel-service
+      HOTEL_SERVICE_PORT: 8082
+      PAYMENT_SERVICE_HOST: payment-service
+      PAYMENT_SERVICE_PORT: 8084
+      LOYALTY_SERVICE_HOST: loyalty-service
+      LOYALTY_SERVICE_PORT: 8085
+      BOOKING_SERVICE_HOST: booking-service
+      BOOKING_SERVICE_PORT: 8086
+      REPORT_SERVICE_HOST: report-service
+      REPORT_SERVICE_PORT: 8088
+    networks:
+      - app-net
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 5
+
+  nginx:
+    image: nginx:1.25-alpine
+    ports:
+      - "80:80"
+    configs:
+      - source: nginx_conf_v2
+        target: /etc/nginx/nginx.conf
+    networks:
+      - app-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+
+configs:
+  nginx_conf_v2:
+    file: ./nginx.conf
+
+networks:
+  app-net:
+    driver: overlay
+    attachable: true
+
+volumes:
+  postgres_data:

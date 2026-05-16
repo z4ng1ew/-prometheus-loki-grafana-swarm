@@ -1,0 +1,31 @@
+groups:
+  - name: do9_critical_alerts
+    interval: 15s
+    rules:
+
+      - alert: LowAvailableMemory
+        expr: node_memory_MemAvailable_bytes < 100 * 1024 * 1024
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Низкая доступная память на {{ $labels.instance }}"
+          description: "Доступная память {{ $value | humanize1024 }}B меньше 100 МБ"
+
+      - alert: HighUsedMemory
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) > 1 * 1024 * 1024 * 1024
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокое использование RAM на {{ $labels.instance }}"
+          description: "Используется {{ $value | humanize1024 }}B (> 1 ГБ)"
+
+      - alert: HighServiceCPU
+        expr: sum by(container_label_com_docker_swarm_service_name) (rate(container_cpu_usage_seconds_total{container_label_com_docker_swarm_service_name!=""}[1m])) > 0.10
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокая загрузка CPU сервиса {{ $labels.container_label_com_docker_swarm_service_name }}"
+          description: "Загрузка {{ $value | humanizePercentage }} (> 10%)"
